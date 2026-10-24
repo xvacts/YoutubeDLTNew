@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+cookies.txt
+cookies*.txt
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+release/
+*.spec
