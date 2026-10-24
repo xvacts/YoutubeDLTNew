@@ -15,16 +15,18 @@ import platform
 import webbrowser
 import html
 import re
+import tempfile
 from urllib.parse import urlsplit, urlunsplit
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QTextEdit, QPushButton, QMessageBox,
-    QComboBox, QFileDialog, QCheckBox
+    QComboBox, QFileDialog, QCheckBox, QLineEdit
 )
 from PyQt6.QtCore import QTimer, QEvent, Qt, QLockFile
 from PyQt6.QtGui import QIcon, QCursor
 from engine import EngineManager
 from workers import DownloadWorker, EngineUpdateWorker
+from connection_settings import ConnectionSettings, private_cookie_file
 
 # ================== 配置路径 ==================
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".youtube_downloader")
@@ -47,7 +49,7 @@ def redact_urls(text):
             return urlunsplit((parts.scheme, host, '/[redacted]', '', ''))
         except ValueError:
             return '[redacted URL]'
-    return re.sub(r'https?://[^\s<>\"\']+', redact, text, flags=re.IGNORECASE)
+    return re.sub(r'(?:https?|socks4|socks5)://[^\s<>\"\']+', redact, text, flags=re.IGNORECASE)
 
 # 默认下载路径
 def get_default_downloads():
@@ -82,6 +84,10 @@ class ConfigManager:
 
     @staticmethod
     def save(key, value):
+        ConfigManager.save_many({key: value})
+
+    @staticmethod
+    def save_many(values):
         data = {}
         if os.path.exists(CONFIG_FILE):
             try:
@@ -89,12 +95,37 @@ class ConfigManager:
                     data = json.load(f)
             except:
                 pass
-        data[key] = value
+        if not isinstance(data, dict):
+            data = {}
+        data.update(values)
+        temporary = None
         try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            directory = os.path.dirname(CONFIG_FILE)
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', dir=directory, encoding='utf-8', delete=False) as f:
+                temporary = f.name
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, CONFIG_FILE)
+            temporary = None
         except:
             pass
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.remove(temporary)
+
+    @staticmethod
+    def load_connection_settings():
+        try:
+            with open(CONFIG_FILE, encoding='utf-8') as f:
+                return ConnectionSettings.from_config(json.load(f))
+        except (OSError, ValueError):
+            return ConnectionSettings()
+
+    @staticmethod
+    def save_connection_settings(settings):
+        ConfigManager.save_many(settings.to_config())
 
     @staticmethod
     def save_download_path(path):
@@ -117,14 +148,18 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("YouTube 下载工具")
-        self.resize(900, 560)
-        self.setMinimumSize(840, 520)
+        self.resize(980, 680)
+        self.setMinimumSize(900, 620)
 
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
         self.download_path, last_quality = ConfigManager.load()
+        self.connection = ConfigManager.load_connection_settings()
+        self.cookie_file = self.connection.cookie_file
+        self.current_connection = self.connection
+        self._settings_ready = False
         self.worker = None
         self.pending_urls = []
         self.total_count = 0
@@ -140,6 +175,7 @@ class MainWindow(QWidget):
         self.latest_version = "检查中..."
 
         self.init_ui()
+        self._settings_ready = True
         index = self.combo_quality.findText(last_quality)
         if index >= 0:
             self.combo_quality.setCurrentIndex(index)
@@ -190,6 +226,49 @@ class MainWindow(QWidget):
         self.btn_update.clicked.connect(self.update_engine)
         version_layout.addWidget(self.btn_update)
         layout.addLayout(version_layout)
+
+        # Match upstream connection controls while keeping the standalone engine.
+        proxy_layout = QHBoxLayout()
+        self.cb_proxy = QCheckBox("使用代理")
+        self.cb_proxy.setChecked(self.connection.use_proxy)
+        proxy_layout.addWidget(self.cb_proxy)
+        proxy_layout.addWidget(QLabel("类型："))
+        self.proxy_type_combo = QComboBox()
+        self.proxy_type_combo.addItems(["http", "socks5", "socks4"])
+        self.proxy_type_combo.setCurrentText(self.connection.proxy_type)
+        proxy_layout.addWidget(self.proxy_type_combo)
+        proxy_layout.addWidget(QLabel("IP／主机："))
+        self.proxy_ip_edit = QLineEdit(self.connection.proxy_ip)
+        self.proxy_ip_edit.setMaximumWidth(190)
+        proxy_layout.addWidget(self.proxy_ip_edit)
+        proxy_layout.addWidget(QLabel("端口："))
+        self.proxy_port_edit = QLineEdit(self.connection.proxy_port)
+        self.proxy_port_edit.setMaximumWidth(85)
+        proxy_layout.addWidget(self.proxy_port_edit)
+        self.btn_proxy_confirm = QPushButton("确认")
+        self.btn_proxy_confirm.clicked.connect(self.save_proxy_settings)
+        proxy_layout.addWidget(self.btn_proxy_confirm)
+        proxy_layout.addStretch(1)
+        self.cb_proxy.setToolTip("用于视频下载；yt-dlp 引擎安装和更新使用系统网络配置。")
+        self.cb_proxy.toggled.connect(self.on_proxy_check_changed)
+        layout.addLayout(proxy_layout)
+
+        cookie_layout = QHBoxLayout()
+        self.cb_cookie = QCheckBox("使用 Cookie 登录下载（会员／私有视频）")
+        self.cb_cookie.setToolTip("导入 Netscape 文本或浏览器 Cookie JSON。新设置用于下一批下载，当前批次暂停／继续时沿用原设置。")
+        self.cb_cookie.setChecked(self.connection.use_cookie)
+        self.cb_cookie.toggled.connect(self.save_connection_preferences)
+        cookie_layout.addWidget(self.cb_cookie)
+        self.btn_import_cookie = QPushButton("导入 Cookie 文件")
+        self.btn_import_cookie.clicked.connect(self.import_cookie)
+        cookie_layout.addWidget(self.btn_import_cookie)
+        self.lbl_cookie_file = QLabel("已加载：" + os.path.basename(self.cookie_file)
+                                     if self.cookie_file else "未加载 Cookie")
+        self.lbl_cookie_file.setTextFormat(Qt.TextFormat.PlainText)
+        self.lbl_cookie_file.setStyleSheet("color: #666;")
+        cookie_layout.addWidget(self.lbl_cookie_file, 1)
+        layout.addLayout(cookie_layout)
+        self.on_proxy_check_changed()
 
         # 输入区域
         input_layout = QHBoxLayout()
@@ -263,6 +342,51 @@ class MainWindow(QWidget):
 
     def open_latest_release(self, event):
         webbrowser.open(GITHUB_RELEASES_URL)
+
+    def connection_from_controls(self):
+        return ConnectionSettings(
+            cookie_file=self.cookie_file, use_cookie=self.cb_cookie.isChecked(),
+            use_proxy=self.cb_proxy.isChecked(), proxy_ip=self.proxy_ip_edit.text().strip(),
+            proxy_port=self.proxy_port_edit.text().strip(), proxy_type=self.proxy_type_combo.currentText())
+
+    def save_connection_preferences(self):
+        if self._settings_ready:
+            ConfigManager.save_connection_settings(self.connection_from_controls())
+
+    def on_proxy_check_changed(self):
+        enabled = self.cb_proxy.isChecked()
+        for control in (self.proxy_ip_edit, self.proxy_port_edit, self.proxy_type_combo, self.btn_proxy_confirm):
+            control.setEnabled(enabled)
+        self.save_connection_preferences()
+
+    def save_proxy_settings(self):
+        settings = self.connection_from_controls()
+        try:
+            settings.proxy_url()
+        except ValueError as exc:
+            QMessageBox.warning(self, "代理设置", str(exc))
+            return
+        ConfigManager.save_connection_settings(settings)
+        self.append_log("代理设置已保存。")
+
+    def import_cookie(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择 Cookie 文件", "", "Cookie 文件 (*.txt *.json);;所有文件 (*.*)")
+        if not path:
+            return
+        try:
+            with private_cookie_file(path):
+                pass
+        except ValueError as exc:
+            QMessageBox.warning(self, "Cookie 文件", str(exc))
+            return
+        self.cookie_file = os.path.abspath(path)
+        self.cb_cookie.blockSignals(True)
+        self.cb_cookie.setChecked(True)
+        self.cb_cookie.blockSignals(False)
+        self.lbl_cookie_file.setText("已加载：" + os.path.basename(path))
+        self.save_connection_preferences()
+        self.append_log("Cookie 文件已导入；下载时使用临时副本。")
 
     def set_engine_version(self, version):
         self.current_version = version
@@ -396,6 +520,19 @@ class MainWindow(QWidget):
 
         quality = self.combo_quality.currentText()
         playlist = self.cb_playlist.isChecked()
+        settings = self.connection_from_controls()
+        try:
+            settings.proxy_url()
+            if settings.use_cookie:
+                if not settings.cookie_file:
+                    raise ValueError("请先导入 Cookie 文件，或取消勾选使用 Cookie。")
+                with private_cookie_file(settings.cookie_file):
+                    pass
+        except ValueError as exc:
+            QMessageBox.warning(self, "下载设置", str(exc))
+            return
+        self.current_connection = settings
+        ConfigManager.save_connection_settings(settings)
 
         # 新任务开始
         self.pending_urls = urls[1:]
@@ -414,7 +551,8 @@ class MainWindow(QWidget):
             self.worker.quit()
             self.worker.wait(3000)
 
-        self.worker = DownloadWorker(url, self.download_path, quality, playlist, manager=self.engine_manager)
+        self.worker = DownloadWorker(url, self.download_path, quality, playlist, manager=self.engine_manager,
+                                     connection=self.current_connection)
         self._connect_worker()
 
         self.append_log(f"───── 开始 ({self.finished_count + 1}/{self.total_count}) ─────")

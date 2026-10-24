@@ -61,6 +61,24 @@ SHA-256 校验依赖通过 HTTPS 获取的官方 GitHub 元数据，未额外实
 YouTube 的额外 JavaScript 运行环境要求以 [yt-dlp 官方说明](https://github.com/yt-dlp/yt-dlp#dependencies)
 为准；本功能不自动安装额外运行环境。
 
+## Cookie 与代理
+
+已对齐上游界面的 Cookie 和代理控件，同时保留独立更新 yt-dlp：
+
+- 勾选“使用 Cookie”，通过“导入 Cookie 文件”选择 Netscape 文本或浏览器 Cookie JSON
+  （Cookie 数组，或包含 `cookies` 数组的对象）。文件上限 10 MB。
+- 勾选“使用代理”，选择 HTTP、SOCKS5 或 SOCKS4，填写 IP／主机和端口，再点“确认”。
+  支持 IPv4、IPv6 和普通域名；IP 输入框不填写协议或账号密码。
+- 设置会保存，并兼容上游的 `cookie_file`、`use_proxy`、`proxy_ip`、`proxy_port`、`proxy_type`
+  配置；只保存 Cookie 文件路径和启用状态，不将 Cookie 内容写入配置或日志。
+- Cookie 使用每任务私有临时副本，JSON 会转换成 yt-dlp 所需的 Netscape 格式。
+  下载结束或取消后删除临时副本，不覆盖原始导出文件。
+- 同一批次的多个链接及暂停／继续沿用启动时的连接设置；更改设置用于下一批下载。
+- 此处的代理用于视频下载。引擎安装和更新使用系统网络配置，Cookie 不会传给 GitHub 更新请求。
+
+参考上游 `secure-artifacts/YoutubeDLT` 的 `main.py`（blob `3d65aa5b2418688e6a754c15759c5a60cf1b5030`）
+的 Cookie 文件导入和 HTTP／SOCKS 代理控件。本项目使用独立进程接口接入这些功能，未重新引入内嵌 yt-dlp 包。
+
 ## Security boundaries
 
 URLs and redirects can reach sites on your local network; multi-site downloading is

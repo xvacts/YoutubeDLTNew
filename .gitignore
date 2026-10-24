@@ -5,6 +5,8 @@
 *.key
 cookies.txt
 cookies*.txt
+cookie*.txt
+cookie*.json
 .venv/
 venv/
 __pycache__/
