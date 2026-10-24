@@ -17,16 +17,14 @@ import html
 import re
 import tempfile
 from urllib.parse import urlsplit, urlunsplit
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextEdit, QPushButton, QMessageBox,
-    QComboBox, QFileDialog, QCheckBox, QLineEdit
-)
-from PyQt6.QtCore import QTimer, QEvent, Qt, QLockFile
-from PyQt6.QtGui import QIcon, QCursor
+from PyQt6.QtWidgets import QApplication, QMessageBox, QFileDialog
+from PyQt6.QtCore import QTimer, QEvent, QLockFile
+from PyQt6.QtGui import QIcon
 from engine import EngineManager
 from workers import DownloadWorker, EngineUpdateWorker
 from connection_settings import ConnectionSettings, private_cookie_file
+from ui_theme import AuroraWindow, line_icon
+from ui_layout import build_interface
 
 # ================== 配置路径 ==================
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".youtube_downloader")
@@ -141,12 +139,12 @@ class VersionChecker:
             pass
         return None
 
-class MainWindow(QWidget):
+class MainWindow(AuroraWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("YouTube 下载工具")
-        self.resize(980, 680)
-        self.setMinimumSize(900, 620)
+        self.resize(1120, 820)
+        self.setMinimumSize(1000, 760)
 
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
         if os.path.exists(icon_path):
@@ -185,158 +183,7 @@ class MainWindow(QWidget):
         self.version_timer.start()
 
     def init_ui(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(12)
-
-        # 保存路径
-        path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("保存到："))
-        self.lbl_path = QLabel(self.download_path)
-        self.lbl_path.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_path.setStyleSheet("font-weight:bold; color:#0066cc;")
-        path_layout.addWidget(self.lbl_path, 1)
-        btn_choose = QPushButton("更改文件夹")
-        btn_choose.clicked.connect(self.choose_path)
-        path_layout.addWidget(btn_choose)
-        btn_open = QPushButton("打开文件夹")
-        btn_open.setStyleSheet("background-color: #4CAF50; color: white;")
-        btn_open.clicked.connect(self.open_folder)
-        path_layout.addWidget(btn_open)
-        layout.addLayout(path_layout)
-
-        # 版本信息
-        version_layout = QHBoxLayout()
-        version_layout.addWidget(QLabel("当前 yt-dlp 版本："))
-        self.lbl_current = QLabel(self.current_version)
-        self.lbl_current.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_current.setStyleSheet("font-weight:bold;")
-        version_layout.addWidget(self.lbl_current)
-        version_layout.addStretch(1)
-        version_layout.addWidget(QLabel("最新稳定版："))
-        self.lbl_latest = QLabel(self.latest_version)
-        self.lbl_latest.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_latest.setStyleSheet("font-weight:bold; color:#0066cc;")
-        self.lbl_latest.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.lbl_latest.mousePressEvent = self.open_latest_release
-        version_layout.addWidget(self.lbl_latest)
-        self.btn_update = QPushButton("安装／更新 yt-dlp")
-        self.btn_update.clicked.connect(self.update_engine)
-        version_layout.addWidget(self.btn_update)
-        layout.addLayout(version_layout)
-
-        # Match upstream connection controls while keeping the standalone engine.
-        proxy_layout = QHBoxLayout()
-        self.cb_proxy = QCheckBox("使用代理")
-        self.cb_proxy.setChecked(self.connection.use_proxy)
-        proxy_layout.addWidget(self.cb_proxy)
-        proxy_layout.addWidget(QLabel("类型："))
-        self.proxy_type_combo = QComboBox()
-        self.proxy_type_combo.addItems(["http", "socks5", "socks4"])
-        self.proxy_type_combo.setCurrentText(self.connection.proxy_type)
-        proxy_layout.addWidget(self.proxy_type_combo)
-        proxy_layout.addWidget(QLabel("IP／主机："))
-        self.proxy_ip_edit = QLineEdit(self.connection.proxy_ip)
-        self.proxy_ip_edit.setMaximumWidth(190)
-        proxy_layout.addWidget(self.proxy_ip_edit)
-        proxy_layout.addWidget(QLabel("端口："))
-        self.proxy_port_edit = QLineEdit(self.connection.proxy_port)
-        self.proxy_port_edit.setMaximumWidth(85)
-        proxy_layout.addWidget(self.proxy_port_edit)
-        self.btn_proxy_confirm = QPushButton("确认")
-        self.btn_proxy_confirm.clicked.connect(self.save_proxy_settings)
-        proxy_layout.addWidget(self.btn_proxy_confirm)
-        proxy_layout.addStretch(1)
-        self.cb_proxy.setToolTip("用于视频下载；yt-dlp 引擎安装和更新使用系统网络配置。")
-        self.cb_proxy.toggled.connect(self.on_proxy_check_changed)
-        layout.addLayout(proxy_layout)
-
-        cookie_layout = QHBoxLayout()
-        self.cb_cookie = QCheckBox("使用 Cookie 登录下载（会员／私有视频）")
-        self.cb_cookie.setToolTip("导入 Netscape 文本或浏览器 Cookie JSON。新设置用于下一批下载，当前批次暂停／继续时沿用原设置。")
-        self.cb_cookie.setChecked(self.connection.use_cookie)
-        self.cb_cookie.toggled.connect(self.save_connection_preferences)
-        cookie_layout.addWidget(self.cb_cookie)
-        self.btn_import_cookie = QPushButton("导入 Cookie 文件")
-        self.btn_import_cookie.clicked.connect(self.import_cookie)
-        cookie_layout.addWidget(self.btn_import_cookie)
-        self.lbl_cookie_file = QLabel("已加载：" + os.path.basename(self.cookie_file)
-                                     if self.cookie_file else "未加载 Cookie")
-        self.lbl_cookie_file.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_cookie_file.setStyleSheet("color: #666;")
-        cookie_layout.addWidget(self.lbl_cookie_file, 1)
-        layout.addLayout(cookie_layout)
-        self.on_proxy_check_changed()
-
-        # 输入区域
-        input_layout = QHBoxLayout()
-        input_layout.addWidget(QLabel("链接："))
-        self.edit_url = QTextEdit()
-        self.edit_url.setPlaceholderText(
-            "支持一次粘贴多个链接（每行一个）\n"
-            "示例：\n"
-            "https://www.youtube.com/watch?v=abc123\n"
-            "https://youtu.be/xyz789\n"
-            "https://www.youtube.com/@频道名  ← 频道链接 + 勾选播放列表 = 下载该频道所有视频（慎用）"
-        )
-        self.edit_url.setAcceptRichText(False)
-        self.edit_url.setTabChangesFocus(True)
-        self.edit_url.setMinimumHeight(100)
-        self.edit_url.setMaximumHeight(160)
-        input_layout.addWidget(self.edit_url, 1)
-
-        input_layout.addWidget(QLabel("质量："))
-        self.combo_quality = QComboBox()
-        self.combo_quality.addItems([
-            "最高质量（推荐）",
-            "1080p（或更低）",
-            "720p（或更低）",
-            "480p（或更低）",
-            "最小体积（适合流量少）",
-            "仅音频（MP3 192kbps）"
-        ])
-        input_layout.addWidget(self.combo_quality)
-        layout.addLayout(input_layout)
-
-        # 播放列表选项
-        playlist_layout = QHBoxLayout()
-        self.cb_playlist = QCheckBox("下载整个播放列表 / 频道全部视频（如果链接包含）")
-        self.cb_playlist.setChecked(False)
-        playlist_layout.addWidget(self.cb_playlist)
-        playlist_layout.addStretch(1)
-        layout.addLayout(playlist_layout)
-
-        # 按钮
-        btn_layout = QHBoxLayout()
-        self.btn_main = QPushButton("开始下载")
-        self.btn_main.setFixedHeight(50)
-        self.btn_main.clicked.connect(self.toggle_main)
-        btn_layout.addWidget(self.btn_main)
-
-        self.btn_cancel = QPushButton("取消全部")
-        self.btn_cancel.setEnabled(False)
-        self.btn_cancel.clicked.connect(self.cancel_all)
-        btn_layout.addWidget(self.btn_cancel)
-        layout.addLayout(btn_layout)
-
-        self.lbl_status = QLabel("就绪")
-        self.lbl_status.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_status.setStyleSheet("font-size:14px; font-weight:bold;")
-        layout.addWidget(self.lbl_status)
-
-        self.lbl_progress = QLabel("进度： - / - ")
-        layout.addWidget(self.lbl_progress)
-
-        self.lbl_file = QLabel("当前文件： - ")
-        self.lbl_file.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(self.lbl_file)
-
-        layout.addWidget(QLabel("日志："))
-        self.log_area = QTextEdit()
-        self.log_area.setReadOnly(True)
-        self.log_area.document().setMaximumBlockCount(2000)
-        layout.addWidget(self.log_area)
-
-        self.setLayout(layout)
+        build_interface(self)
 
     def open_latest_release(self, event):
         webbrowser.open(GITHUB_RELEASES_URL)
@@ -436,10 +283,10 @@ class MainWindow(QWidget):
     def update_version_label(self, latest):
         self.latest_version = latest
         text = latest
-        style = "font-weight:bold; color:#27ae60;"
+        style = "font-weight:bold; color:#80ead9;"
         if self.current_version != latest:
             text += " （点击查看更新）"
-            style = "font-weight:bold; color:#e67e22;"
+            style = "font-weight:bold; color:#f5cc8b;"
         self.lbl_latest.setStyleSheet(style)
         self.lbl_latest.setText(text)
 
@@ -460,6 +307,7 @@ class MainWindow(QWidget):
         if folder:
             self.download_path = folder
             self.lbl_path.setText(folder)
+            self.lbl_path.setToolTip(folder)
             ConfigManager.save_download_path(folder)
             self.append_log(f"保存路径已更新：{folder}")
 
@@ -562,6 +410,10 @@ class MainWindow(QWidget):
         self.btn_update.setEnabled(False)
         self.btn_main.setEnabled(True)
         self.btn_main.setText("暂停当前")
+        self.btn_main.setIcon(line_icon('pause'))
+        self.download_progress.setValue(0)
+        self.lbl_percent.setText('0%')
+        self.lbl_speed.setText('速度：—')
         self.btn_cancel.setEnabled(True)
         self.lbl_status.setText(f"正在下载 ({self.finished_count + 1}/{self.total_count})")
 
@@ -575,6 +427,7 @@ class MainWindow(QWidget):
             return
         if self.is_paused:
             self.btn_main.setText("继续下载")
+            self.btn_main.setIcon(line_icon('download'))
             self.btn_update.setEnabled(True)
             self.lbl_status.setText("已暂停")
             return
@@ -614,6 +467,10 @@ class MainWindow(QWidget):
         self.btn_main.setEnabled(True)
         self.total_count = 0
         self.btn_main.setText("开始下载")
+        self.btn_main.setIcon(line_icon('download'))
+        self.download_progress.setValue(0)
+        self.lbl_percent.setText('0%')
+        self.lbl_speed.setText('速度：—')
         self.btn_cancel.setEnabled(False)
         self.lbl_status.setText("就绪")
         self.lbl_progress.setText("进度： - / - ")
@@ -622,6 +479,13 @@ class MainWindow(QWidget):
 
     def append_log(self, text):
         ts = datetime.datetime.now().strftime("%H:%M:%S")
+        progress = re.match(r'^\[download\]\s+(\d{1,3}(?:\.\d+)?)%\s+at\s+(.{1,32}?)\s+ETA\b', text)
+        if progress:
+            percent = float(progress.group(1))
+            if 0 <= percent <= 100:
+                self.download_progress.setValue(round(percent))
+                self.lbl_percent.setText(f'{percent:g}%')
+                self.lbl_speed.setText('速度：' + progress.group(2).strip())
         # QTextEdit.append auto-detects HTML, including local image references.
         self.log_area.append(html.escape(f"[{ts}] {redact_urls(text)}"))
         if any(kw in text for kw in ["[download]", "完成", "错误", "暂停", "─────"]):

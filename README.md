@@ -63,6 +63,11 @@ YouTube 的额外 JavaScript 运行环境要求以 [yt-dlp 官方说明](https:/
 
 ## Cookie 与代理
 
+界面采用深蓝紫渐变、半透明卡片、圆角按钮与动画开关，优先使用系统中文字体，
+图标由本地 Qt 绘制，不下载字体或界面资源。当前文件的百分比和速度显示在进度卡片。
+Instagram（IG）视频请先导入有效的 IG Cookie，再粘贴视频链接；Facebook（FB）
+公开视频可直接下载，需登录的内容请导入对应站点 Cookie。具体可用性受站点和账号权限影响。
+
 已对齐上游界面的 Cookie 和代理控件，同时保留独立更新 yt-dlp：
 
 - 勾选“使用 Cookie”，通过“导入 Cookie 文件”选择 Netscape 文本或浏览器 Cookie JSON
