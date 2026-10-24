@@ -127,3 +127,4 @@ a malicious server will not send a Brotli response.
 Do not commit credentials, `.env`, cookie exports or private keys. If a real secret
 has ever been committed or disclosed, revoke and replace it at its provider;
 deleting the current file alone does not invalidate the secret.
+<img width="1118" height="847" alt="image" src="https://github.com/user-attachments/assets/66746f98-4132-4aa7-9292-04b3bf4b1266" />
