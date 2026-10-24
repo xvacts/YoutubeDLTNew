@@ -87,10 +87,35 @@ URL paths, credentials, query parameters and fragments are removed from GUI logs
 Review other error text before sharing logs; automatic redaction is not a guarantee
 that arbitrary upstream messages contain no sensitive data.
 
-The audited PyQt6-Qt6 wheel is 6.11.2. Qt advisories requiring 6.11.3 remain under
-review until a patched wheel is available; affected QDom/Qt JSON/HTTP2 APIs are not
-called by the application. Python package audit tools do not cover all native Qt
-or external FFmpeg vulnerabilities.
+The audited PyQt6-Qt6 wheel is 6.11.2. Qt JSON/HTTP2 advisories requiring 6.11.3
+remain under review until a patched wheel is available; those APIs are not called
+by the application. QDom destructor CVE-2026-19248 is already fixed in 6.11.2.
+Other optional Qt modules need their own reachability review before adding new
+features. Python package audit tools do not cover all native Qt or external
+FFmpeg vulnerabilities.
+
+Update requests validate HTTPS and the official GitHub host allowlist before
+following each redirect. Public update requests do not inherit `.netrc` logins.
+Release metadata, local configuration and the active engine manifest have size
+limits; malformed or deeply nested JSON is rejected safely. The GUI retains the
+latest 2000 log lines. Cookie imports reject invalid control characters.
+
+CI builds have read-only repository tokens. Separate publish jobs receive write
+access and only download the corresponding artifact and publish it; they do not
+install dependencies or execute project build scripts. macOS builds currently
+use ad-hoc signing and are not Apple-notarized.
+
+Audit snapshot (2026-10-24): the verified official Windows yt-dlp 2026.10.21
+binary reports Brotli 1.2.0, Python 3.10.11 and OpenSSL 1.1.1t. Brotli 1.2.0 is
+affected by the critical decoder advisory
+[GHSA-9v8h-qqgm-4m35](https://github.com/advisories/GHSA-9v8h-qqgm-4m35);
+the fixed Brotli release is 1.2.1. The Python package locks for this GUI do not
+patch libraries inside the independent engine EXE. The developer elected to keep
+the official stable distribution and its download functionality pending an
+upstream fix. Avoid untrusted URLs/content in the meantime; this is a remaining
+risk, not a completed security fix. Recheck the engine's embedded components
+after an upstream update. An Accept-Encoding header alone cannot guarantee that
+a malicious server will not send a Brotli response.
 
 Do not commit credentials, `.env`, cookie exports or private keys. If a real secret
 has ever been committed or disclosed, revoke and replace it at its provider;

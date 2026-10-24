@@ -28,6 +28,7 @@ class EngineTests(unittest.TestCase):
         release = release or self.release(payload=payload)
         response = MagicMock()
         response.url = release['assets'][0]['browser_download_url']
+        response.status_code = 200
         response.iter_content.return_value = [payload]
         request = MagicMock()
         request.__enter__.return_value = response

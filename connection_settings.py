@@ -74,7 +74,8 @@ def _json_cookies(text, destination):
             if not isinstance(row, dict):
                 raise ValueError()
             fields = {key: row.get(key, '/' if key == 'path' else '') for key in ('domain', 'path', 'name', 'value')}
-            if any(not isinstance(value, str) or any(char in value for char in '\r\n\t') for value in fields.values()):
+            if any(not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value)
+                   for value in fields.values()):
                 raise ValueError()
             if not fields['domain'] or not fields['name'] or not fields['path'].startswith('/'):
                 raise ValueError()
@@ -94,7 +95,7 @@ def _json_cookies(text, destination):
                 discard=session, comment=None, comment_url=None,
                 rest={'HTTPOnly': None} if row.get('httpOnly') else {}, rfc2109=False))
         jar.save(ignore_discard=True, ignore_expires=True)
-    except (ValueError, TypeError, KeyError, OverflowError):
+    except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
         raise ValueError('Cookie JSON 格式无效，请使用浏览器导出的 Cookie 数组或 Netscape 文本文件。') from None
 
 
@@ -115,6 +116,8 @@ def private_cookie_file(source):
         text = data.decode('utf-8-sig')
     except UnicodeError:
         raise ValueError('Cookie 文件应使用 UTF-8 编码。') from None
+    if any(ord(char) < 32 and char not in '\r\n\t' or ord(char) == 127 for char in text):
+        raise ValueError('Cookie 文件含有无效控制字符，请重新导出。')
     with tempfile.TemporaryDirectory(prefix='youtubedlt-cookies-') as directory:
         destination = Path(directory) / 'cookies.txt'
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

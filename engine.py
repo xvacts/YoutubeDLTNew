@@ -9,15 +9,21 @@ import subprocess
 import sys
 import tempfile
 import time
+import datetime
 from pathlib import Path
+from urllib.parse import urlsplit, urljoin
 
 import requests
+from requests.auth import AuthBase
 from PyQt6.QtCore import QLockFile
 
 API_URL = 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest'
 RELEASE_ROOT = 'https://github.com/yt-dlp/yt-dlp/releases/download'
 MIN_VERSION = (2026, 7, 4)
 MAX_BINARY_BYTES = 150 * 1024 * 1024
+MAX_RELEASE_BYTES = 1024 * 1024
+UPDATE_HOSTS = frozenset({'api.github.com', 'github.com', 'release-assets.githubusercontent.com',
+                          'objects.githubusercontent.com', 'github-releases.githubusercontent.com'})
 
 
 class EngineError(RuntimeError):
@@ -32,6 +38,10 @@ def version_tuple(value):
     if not isinstance(value, str) or not re.fullmatch(r'\d{4}\.\d{1,2}\.\d{1,2}', value):
         raise EngineError('Invalid yt-dlp release version')
     result = tuple(map(int, value.split('.')))
+    try:
+        datetime.date(*result)
+    except ValueError:
+        raise EngineError('Invalid yt-dlp release date') from None
     if result < MIN_VERSION:
         raise EngineError('yt-dlp is older than the minimum safe version')
     return result
@@ -88,6 +98,41 @@ def check_cancel(cancel):
         raise Cancelled('Operation cancelled')
 
 
+class _PublicUpdateAuth(AuthBase):
+    def __call__(self, request):
+        # Public updates must not read or transmit the user's implicit .netrc login.
+        return request
+
+
+def _validate_update_url(url):
+    try:
+        parts = urlsplit(url)
+        allowed = (parts.scheme == 'https' and parts.hostname in UPDATE_HOSTS
+                   and parts.port in (None, 443) and parts.username is None and parts.password is None)
+    except (ValueError, TypeError):
+        allowed = False
+    if not allowed:
+        raise EngineError('Refusing an insecure or unofficial update download location')
+
+
+@contextlib.contextmanager
+def _update_response(url, *, headers=None, max_redirects=5):
+    for attempt in range(max_redirects + 1):
+        _validate_update_url(url)
+        with requests.get(url, stream=True, allow_redirects=False, timeout=(10, 20),
+                          auth=_PublicUpdateAuth(), headers=headers) as response:
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get('Location')
+                if not location or attempt == max_redirects:
+                    raise EngineError('Official update exceeded its redirect limit')
+                url = urljoin(url, location)
+                _validate_update_url(url)  # Check before making the next request.
+                continue
+            response.raise_for_status()
+            yield response
+            return
+
+
 class EngineManager:
     def __init__(self, root=None):
         self.root = Path(root or Path.home() / '.youtube_downloader' / 'engine').absolute()
@@ -95,12 +140,16 @@ class EngineManager:
 
     def _manifest(self):
         try:
-            data = json.loads((self.root / 'active.json').read_text(encoding='utf-8'))
+            with (self.root / 'active.json').open('rb') as stream:
+                content = stream.read(65537)
+            if len(content) > 65536:
+                return None
+            data = json.loads(content)
             version_tuple(data['version'])
             if data['asset'] != self.asset or not re.fullmatch(r'[0-9a-f]{64}', data['sha256']):
                 return None
             return data
-        except (OSError, ValueError, KeyError, TypeError, EngineError):
+        except (OSError, ValueError, KeyError, TypeError, EngineError, RecursionError):
             return None
 
     def installed_version(self):
@@ -145,9 +194,20 @@ class EngineManager:
 
     @staticmethod
     def latest_release():
-        with requests.get(API_URL, timeout=(10, 20), headers={'Accept': 'application/vnd.github+json'}) as response:
-            response.raise_for_status()
-            release = response.json()
+        headers = {'Accept': 'application/vnd.github+json', 'Accept-Encoding': 'identity'}
+        content = bytearray()
+        start = time.monotonic()
+        with _update_response(API_URL, headers=headers, max_redirects=0) as response:
+            for chunk in response.iter_content(65536):
+                if len(content) + len(chunk) > MAX_RELEASE_BYTES or time.monotonic() - start > 30:
+                    raise EngineError('Official release metadata exceeds its size or time limit')
+                content.extend(chunk)
+        try:
+            release = json.loads(content)
+        except (ValueError, RecursionError):
+            raise EngineError('Invalid official release metadata') from None
+        if not isinstance(release, dict):
+            raise EngineError('Invalid official release metadata')
         version_tuple(release.get('tag_name'))
         if release.get('prerelease') or release.get('draft'):
             raise EngineError('Expected an official stable release')
@@ -192,10 +252,7 @@ class EngineManager:
                 temporary = Path(stream.name)
                 actual = hashlib.sha256()
                 count = 0
-                with requests.get(url, stream=True, timeout=(10, 20)) as response:
-                    response.raise_for_status()
-                    if not response.url.startswith('https://'):
-                        raise EngineError('Refusing an insecure download redirect')
+                with _update_response(url, headers={'Accept-Encoding': 'identity'}) as response:
                     for chunk in response.iter_content(1024 * 256):
                         check_cancel(cancel)
                         if time.monotonic() - start > 300:

@@ -16,9 +16,6 @@ jobs:
 
   windows:
 
-    permissions:
-      contents: write  # Required to publish this platform release.
-
     runs-on: windows-latest
 
     steps:
@@ -59,20 +56,18 @@ jobs:
         mkdir release
         move dist\YoutubeDLT.exe release\YoutubeDLT-Windows.exe
 
-    - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
-        tag_name: windows
-        files: release/YoutubeDLT-Windows.exe
-        overwrite_files: true
+        name: windows-release
+        path: release/YoutubeDLT-Windows.exe
+        if-no-files-found: error
+        retention-days: 3
 
 ############################
 # macOS ARM (M1/M2/M3)
 ############################
 
   mac-arm:
-
-    permissions:
-      contents: write  # Required to publish this platform release.
 
     runs-on: macos-latest
 
@@ -121,20 +116,18 @@ jobs:
         cd dist
         zip -r YoutubeDLT-macOS-arm64.zip YoutubeDLT.app
 
-    - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
-        tag_name: mac-arm
-        files: dist/YoutubeDLT-macOS-arm64.zip
-        overwrite_files: true
+        name: mac-arm-release
+        path: dist/YoutubeDLT-macOS-arm64.zip
+        if-no-files-found: error
+        retention-days: 3
 
 ############################
 # macOS Intel
 ############################
 
   mac-intel:
-
-    permissions:
-      contents: write  # Required to publish this platform release.
 
     runs-on: macos-15-intel
 
@@ -184,8 +177,42 @@ jobs:
         cd dist
         zip -r YoutubeDLT-macOS-x86_64.zip YoutubeDLT.app
 
-    - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
-        tag_name: mac-intel
-        files: dist/YoutubeDLT-macOS-x86_64.zip
-        overwrite_files: true
+        name: mac-intel-release
+        path: dist/YoutubeDLT-macOS-x86_64.zip
+        if-no-files-found: error
+        retention-days: 3
+
+  publish-windows:
+    needs: windows
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish.yml
+    with:
+      artifact: windows-release
+      tag: windows
+      filename: YoutubeDLT-Windows.exe
+
+  publish-mac-arm:
+    needs: mac-arm
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish.yml
+    with:
+      artifact: mac-arm-release
+      tag: mac-arm
+      filename: YoutubeDLT-macOS-arm64.zip
+
+  publish-mac-intel:
+    needs: mac-intel
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish.yml
+    with:
+      artifact: mac-intel-release
+      tag: mac-intel
+      filename: YoutubeDLT-macOS-x86_64.zip

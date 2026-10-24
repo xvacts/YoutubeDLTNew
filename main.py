@@ -36,6 +36,7 @@ GITHUB_RELEASES_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest"
 
 # 单实例锁
 LOCK_FILE = os.path.join(CONFIG_DIR, "app.lock")
+MAX_CONFIG_BYTES = 512 * 1024
 
 def redact_urls(text):
     """Keep URL credentials, signed paths, query tokens and fragments out of UI logs."""
@@ -44,12 +45,14 @@ def redact_urls(text):
             parts = urlsplit(match.group(0))
             # Only retain the origin: secrets may also appear in the URL path.
             host = parts.hostname or "redacted"
+            if not re.fullmatch(r'[A-Za-z0-9._:-]+', host):
+                return '[redacted URL]'
             if ':' in host:
                 host = f'[{host}]'
             return urlunsplit((parts.scheme, host, '/[redacted]', '', ''))
         except ValueError:
             return '[redacted URL]'
-    return re.sub(r'(?:https?|socks4|socks5)://[^\s<>\"\']+', redact, text, flags=re.IGNORECASE)
+    return re.sub(r'(?:https?|socks4|socks5)://[^\s<>]+', redact, text, flags=re.IGNORECASE)
 
 # 默认下载路径
 def get_default_downloads():
@@ -69,18 +72,24 @@ def get_default_downloads():
 
 class ConfigManager:
     @staticmethod
+    def _read():
+        try:
+            with open(CONFIG_FILE, 'rb') as f:
+                content = f.read(MAX_CONFIG_BYTES + 1)
+            if len(content) > MAX_CONFIG_BYTES:
+                return {}
+            data = json.loads(content)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError, RecursionError):
+            return {}
+
+    @staticmethod
     def load():
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return (
-                        data.get('download_path', get_default_downloads()),
-                        data.get('last_quality', "最高质量（推荐）")
-                    )
-            except:
-                pass
-        return get_default_downloads(), "最高质量（推荐）"
+        data = ConfigManager._read()
+        path = data.get('download_path')
+        quality = data.get('last_quality')
+        return (path if isinstance(path, str) and path else get_default_downloads(),
+                quality if isinstance(quality, str) else "最高质量（推荐）")
 
     @staticmethod
     def save(key, value):
@@ -88,15 +97,7 @@ class ConfigManager:
 
     @staticmethod
     def save_many(values):
-        data = {}
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-            except:
-                pass
-        if not isinstance(data, dict):
-            data = {}
+        data = ConfigManager._read()
         data.update(values)
         temporary = None
         try:
@@ -117,11 +118,7 @@ class ConfigManager:
 
     @staticmethod
     def load_connection_settings():
-        try:
-            with open(CONFIG_FILE, encoding='utf-8') as f:
-                return ConnectionSettings.from_config(json.load(f))
-        except (OSError, ValueError):
-            return ConnectionSettings()
+        return ConnectionSettings.from_config(ConfigManager._read())
 
     @staticmethod
     def save_connection_settings(settings):
@@ -336,6 +333,7 @@ class MainWindow(QWidget):
         layout.addWidget(QLabel("日志："))
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
+        self.log_area.document().setMaximumBlockCount(2000)
         layout.addWidget(self.log_area)
 
         self.setLayout(layout)
