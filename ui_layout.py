@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QLineEdit,
                             QProgressBar, QPushButton, QSizePolicy, QTextEdit, QVBoxLayout)
 
 from ui_theme import STYLESHEET, GlassComboBox, ToggleCheckBox, card, glow, line_icon, ui_font
+from link_input import LinkInput
 
 
 def label(text, name=None):
@@ -204,13 +205,13 @@ def build_interface(self):
     row.addWidget(icon_label('link', 30))
     row.addWidget(label('添加下载链接', 'SectionTitle'))
     row.addStretch()
-    row.addWidget(label('一行一个链接', 'Muted'))
+    row.addWidget(label('粘贴后自动换行', 'Muted'))
     input_layout.addLayout(row)
-    self.edit_url = QTextEdit()
+    self.edit_url = LinkInput()
     self.edit_url.setAcceptRichText(False)
     self.edit_url.setTabChangesFocus(True)
     self.edit_url.setAccessibleName('下载链接，每行一个')
-    self.edit_url.setPlaceholderText('粘贴 YouTube、Instagram（IG）或 Facebook（FB）视频链接\n\n支持一次添加多个链接，每行一个。')
+    self.edit_url.setPlaceholderText('粘贴视频链接，自动换行后可继续添加\n支持 YouTube / Instagram / Facebook，也可批量粘贴。')
     self.edit_url.setMinimumHeight(110)
     self.edit_url.setMaximumHeight(150)
     input_layout.addWidget(self.edit_url)

@@ -8,11 +8,11 @@ STYLESHEET = """
 QWidget { color: #eaf2ff; font-size: 14px; }
 QLabel { background: transparent; border: none; }
 QLabel#AppTitle { font-size: 26px; font-weight: 700; letter-spacing: 1px; }
-QLabel#Subtitle { color: #99aacb; font-size: 12px; }
-QLabel#SectionTitle { font-size: 15px; font-weight: 600; color: #eef5ff; }
+QLabel#Subtitle { color: #acbad5; font-size: 13px; }
+QLabel#SectionTitle { font-size: 16px; font-weight: 600; color: #eef5ff; }
 QLabel#Muted { color: #afbedc; }
-QLabel#SiteHint { color: #b9d8ea; font-size: 12px; }
-QLabel#PathValue { font-size: 13px; color: #c0f4f1; }
+QLabel#SiteHint { color: #c5deed; font-size: 13px; }
+QLabel#PathValue { font-size: 14px; color: #c0f4f1; }
 QLabel#StatusValue { color: #80ead9; font-size: 16px; font-weight: 600; }
 QFrame#GlassCard {
     background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
@@ -72,7 +72,8 @@ QTextEdit {
     selection-background-color: #3a8fa4; selection-color: white;
 }
 QTextEdit:focus { border: 1px solid #67dfdc; }
-QTextEdit#LogArea { background: rgba(16,24,52,130); color: #bdcde5; border-color: rgba(184,207,242,38); }
+QTextEdit#LinkInput { font-size: 15px; color: #22334f; padding: 10px 12px; }
+QTextEdit#LogArea { background: rgba(16,24,52,130); color: #cbd7eb; border-color: rgba(184,207,242,38); font-size: 14px; }
 QCheckBox { spacing: 8px; background: transparent; }
 QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #8198bb; background: rgba(152,182,224,35); }
 QCheckBox::indicator:checked { background: #29c9b2; border-color: #8cf4e3; }
